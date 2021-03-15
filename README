@@ -1,3 +1,6 @@
 
-This repoincludes code for the sysmag project involving speakers.
+This repo includes code for the sysmag project involving speakers.
+The code is written in the JUlia language
+The scope of the code is to detect magnets from sensor data.
+The goal is to classigy the magnets according to material and shape
 
