@@ -1,7 +1,10 @@
 using Pipe, Statistics, PyCall, ImageFiltering, Plots, Contour, Images
 plt  = pyimport("matplotlib.pyplot")
 include("hexdata.jl")
+include("geo.jl")
 
+# flatten an array of arrays
+flatten(x) = collect(Iterators.flatten(x))
 # The distance to the mean for all pixels.
 mean_distance(x) = @pipe x .- mean(x) |> _.^2 |> _./length(_) |> sqrt.(_)
 # Normalizes an image.
@@ -58,15 +61,46 @@ function remove_open(cnt)
   [α, β]
 end
 
-# keeping only levels defined in sl
+# keeps only contours with levels: lvls
 function keep_levels(cnt, lvls)
-  [@pipe findall(x -> x == lvl, cnt[2]) |> cnt[1][_]
-    for lvl∈lvls]
+  ncnt = [[], []]
+  for lvl∈lvls
+    for i∈1:size(cnt[1], 1)
+      if cnt[2][i] == lvl
+        push!(ncnt[1], cnt[1][i])
+        append!(ncnt[2], lvl)
+      end
+    end
+  end
+  ncnt
 end
+
+# keeps only contours without a contour inside
+function keep_inner(cnt)
+  size(cnt[1], 1) == 1 && (return cnt)
+  mp = [[c[1, 1] c[1, 2]] for c∈cnt[1]]
+  ncnt = [[], []]
+  for i∈1:size(cnt[1], 1)
+    t = []
+    for j∈1:size(cnt[1], 1)
+      if i != j
+        append!(t, inpoly(cnt[1][i], mp[j]))
+      end
+    end
+    println("i: ", i, " t: " , t)
+    if all(x -> x == false, t)
+      push!(ncnt[1], cnt[1][i])
+      append!(ncnt[2], cnt[2][i])
+    end
+  end
+  ncnt
+end
+
 # MAIN
 # =============================
-rdir = "orienteddata/"
+rdir = "data/oriented/"
 for fname∈readdir(rdir)
+  println("\n"*fname[1:end-4])
   fname[end-3:end] != ".hex" && continue
   path = rdir*fname
   imgall = magim2(path)
@@ -75,46 +109,44 @@ for fname∈readdir(rdir)
     |> fix_broken_sensors.(_)
   )
   
-  # plottning org data
-  #=
-  for (i, name) ∈ enumerate(["AMR", "HALL", "JOIN"])
-    plt.figure(name)
-    for img ∈ imgall[i]
-      plt.imshow(img, cmap="gray")
-    end
-  end
-  =#
-
   c, r = minrect(render.(img, 3), 0.2)
-  println(c, r)
+  #println(c, r)
   sz = size(img, 1)
-  plt.figure(fname[1:end-4], figsize=(15, 10))
+  plt.figure(fname[1:end-4], figsize=(10, 5))
   for i∈1:sz
     simg = @pipe img[i] |> crop(_, c, r) 
+    # get all 0.2 and 0.8 level curves
     cnt = @pipe (simg 
       |> render(_, 3) 
       |> normalize 
       |> findContours(_, 4)
       |> remove_open
       |> keep_levels(_, [0.2, 0.8])
+      |> keep_inner
     )
-    plt.subplot(2,sz,i)
+    
+    println("size cnt: ", size(cnt[1]))
+    println("cnt[2]: ", cnt[2])
+    
+    plt.subplot(1,sz,i)
     plt.imshow(simg, cmap="gray")
-    # min contours
-    [plt.plot(c[:, 2].- 1, c[:, 1].- 1, color="C1") for c∈cnt[1]]
-    # max contours
-    [plt.plot(c[:, 2].- 1, c[:, 1].- 1, color="C0") for c∈cnt[2]]
+    for i∈1:size(cnt[1], 1)
+      x = cnt[1][i]
+      clr = (cnt[2][i] == 0.2) ? "C0" : "C1" 
+      plt.plot(x[:, 2] .- 1, x[:, 1] .-1, color=clr)
+    end
     
-    #JLD.save(fname[1:end-4]*".jld", "cnt", cnt) 
+    #[plt.plot(c[:, 2].- 1, c[:, 1].- 1, color="C0") for c∈cnt[1]]
+
+    JLD.save(fname[1:end-4]*".jld", "cnt", cnt) 
     
-    plt.subplot(2,sz,i+sz)
-    plt.hist(vec(simg), 50)
+    #plt.subplot(2,sz,i+sz)
+    #plt.hist(vec(simg), 50)
     plt.grid()
 
   end
-  rimg = load(rdir*fname[1:end-4]*".jpg")
-  println(fname[1:end-4])
-  display(plot(rimg))
+  #rimg = load(rdir*fname[1:end-4]*".jpg")
+  #display(plot(rimg))
   #plt.savefig(rdir*fname[1:end-4]*".png")
   plt.show()
 end

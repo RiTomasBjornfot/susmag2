@@ -22,6 +22,7 @@ inpoly(poly, pt) = @pipe (poly .- pt
     |> [abs(x) < 180 ? x : x - sign(x)*360 for x∈_]
     |> sum
     |> round
+    |> abs
     |> (_ == 360)
   )
 
