@@ -40,7 +40,6 @@ function findContours(img, ls)
   for cl ∈ levels(contours(1:size(img, 1), 1:size(img, 2), img, ls))
     for line ∈ lines(cl)
       append!(z, level(cl))
-      #println(level(cl))
       α, β  = coordinates(line)
       push!(x, α)
       push!(y, β)
@@ -60,6 +59,7 @@ function remove_open(cnt)
   end
   [α, β]
 end
+
 
 # keeps only contours with levels: lvls
 function keep_levels(cnt, lvls)
@@ -87,7 +87,6 @@ function keep_inner(cnt)
         append!(t, inpoly(cnt[1][i], mp[j]))
       end
     end
-    println("i: ", i, " t: " , t)
     if all(x -> x == false, t)
       push!(ncnt[1], cnt[1][i])
       append!(ncnt[2], cnt[2][i])
@@ -96,57 +95,148 @@ function keep_inner(cnt)
   ncnt
 end
 
+# This is the function that get the important contours
+# OLD
+feature_contours(img, cl) = @pipe (img
+  |> render(_, 1) 
+  |> normalize 
+  |> findContours(_, cl - 1)
+  |> remove_open
+  |> keep_levels(_, [1/cl (cl - 1)/cl])
+  |> keep_inner
+)
+
+# gets the contours from the image
+function mag_contours(img, cl) 
+  cnt = @pipe (img
+    |> render(_, 1) 
+    |> findContours(_, cl - 1)
+    |> remove_open
+  )
+  return cnt
+end
+
+
+# checks if contour c1 lies inside c2
+is_inside(c1, c2) = inpoly(c1, [c2[1, 1] c2[1, 2]])
+# checks is contour c1 and c2 forms a dougnut shape
+is_dougnut(c1, c2) = is_inside(c1, c2)
+# calculate min and max width for the contour.
+function contour_dims(c)
+  # rotates x, α degree in the plane
+  rot(x, α) = x*[cos(α) -sin(α); sin(α) cos(α)]'
+  θ = π/180
+  mn, mx = 10000, -1000
+  for i∈1:360
+    z = @pipe rot(c, i*θ) |> _[:, 1] |> extrema |> _[2] - _[1]
+    z > mx && (mx = z)
+    z < mn && (mn = z)
+  end
+  mn, mx
+end
+
+# calculates the area for a contour in pixels
+# returns the area sorted
+function contour_area(c) 
+  a = [length(pixels_inside(x)) for x∈c]
+  sort(a, rev=true), c[sortperm(a, rev=true)] 
+end
+# find all integer positions inside the contour
+function pixels_inside(c)
+  # inside bounding rectangle
+  mi = [@pipe c[:, i] |> extrema |> [floor(Int, _[1]) ceil(Int, _[2])] for i∈1:2]
+  # inside polygon
+  idx = []
+  for i∈mi[1][1]:mi[1][2], j∈mi[2][1]:mi[2][2]
+    inpoly(c, [i j]) && push!(idx, (i, j))
+  end
+  idx
+end
+
+# gets the size and average value inside the contour
+# cnt : an array of contours
+# old
+contour_props(cnt, img) = 
+[@pipe (cnt[1][i] 
+    |> pixels_inside
+    |> [img[i...] for i∈_] 
+    |> (length(_), mean(_))
+  )
+ for i∈1:length(cnt[1])]
+
 # MAIN
 # =============================
-rdir = "data/oriented/"
+
+rdir = "data/enupp/"
+cl = 2
+println("\nroot dir: ", rdir)
+println("levels: ", [1/cl (cl - 1)/cl])
+
 for fname∈readdir(rdir)
-  println("\n"*fname[1:end-4])
   fname[end-3:end] != ".hex" && continue
+  f = fname[1:end-4]
+  println("\n"*f)
   path = rdir*fname
-  imgall = magim2(path)
-  img = @pipe (imgall[3] 
+  img_all = magim2(rdir*fname)
+  img = @pipe (img_all[3] 
     |> [sqrt.(_[1].^2 + _[2].^2), _[3]] 
     |> fix_broken_sensors.(_)
   )
   
   c, r = minrect(render.(img, 3), 0.2)
-  #println(c, r)
   sz = size(img, 1)
-  plt.figure(fname[1:end-4], figsize=(10, 5))
+  plt.figure(f, figsize=(10, 5))
+  name = ["r-dir", "z-dir"]
   for i∈1:sz
-    simg = @pipe img[i] |> crop(_, c, r) 
-    # get all 0.2 and 0.8 level curves
-    cnt = @pipe (simg 
-      |> render(_, 3) 
-      |> normalize 
-      |> findContours(_, 4)
-      |> remove_open
-      |> keep_levels(_, [0.2, 0.8])
-      |> keep_inner
-    )
+    cimg = crop(img[i], c, r) 
+    cnt = mag_contours(cimg, cl)[1] 
     
-    println("size cnt: ", size(cnt[1]))
-    println("cnt[2]: ", cnt[2])
+    #=
+    # XY alignment! X is 2* too wide!!!
+    for i∈1:size(cnt, 1)
+      cnt[i][:, 2] *= 0.5
+    end
+    =#
+
+    a, cnt = contour_area(cnt)
+    noc = size(cnt, 1)
+    cdims = contour_dims.(cnt)
+    
+    # checking if dougnut
+    dnut = (noc == 2) ? is_dougnut(cnt[1], cnt[2]) : false
+    # calculate total area 
+    ta = dnut ? -(a...) : +(a...)
+    # calculate 
+    dnut && (cdims = [cdims[1]])
+    
+    println("\n\t"*name[i])
+    #println("\tnumber of contours: ", noc)
+    noc > 2 && println("\tWARNING: Too many contours. result may not be accurate!")
+    println("\tdoungnut: ", dnut)
+    #println("\tcontour areas: ", a)
+    println("\ttotal area: ", ta)
+    println("\tcontour dims (r1, r2): ", cdims)
+    println("rr: ", cdims[1][2]/cdims[1][1])
+    data = [Int(dnut), ta, cdims[1]] #, Int(cdims[1][1]), Int(cdims[1][2])]
+    print("\t=> ")
+    [print(string(d)*" ") for d∈data]
+    println()
+
+
+    #=
+    p = contour_props(cnt, cimg)
+    println("\n\t"*name[i])
+    println("\tsize: ", [pp[1] for pp∈p])
+    println("\tdensity: ", [pp[2] |> round |> Int for pp∈p])
+    println("\tenergy: ", [*(pp[1:2]...) |> round |> Int for pp∈p])
+    =#
     
     plt.subplot(1,sz,i)
-    plt.imshow(simg, cmap="gray")
-    for i∈1:size(cnt[1], 1)
-      x = cnt[1][i]
-      clr = (cnt[2][i] == 0.2) ? "C0" : "C1" 
-      plt.plot(x[:, 2] .- 1, x[:, 1] .-1, color=clr)
-    end
-    
-    #[plt.plot(c[:, 2].- 1, c[:, 1].- 1, color="C0") for c∈cnt[1]]
-
-    JLD.save(fname[1:end-4]*".jld", "cnt", cnt) 
-    
-    #plt.subplot(2,sz,i+sz)
-    #plt.hist(vec(simg), 50)
+    plt.imshow(cimg, cmap="gray")
+    [plt.plot(c[:, 2] .- 1, c[:, 1] .-1, color="C1") for c∈cnt]
     plt.grid()
-
   end
-  #rimg = load(rdir*fname[1:end-4]*".jpg")
-  #display(plot(rimg))
-  #plt.savefig(rdir*fname[1:end-4]*".png")
-  plt.show()
+  rdir*f*".jpg" |> load |> plot |> display
+  plt.savefig(rdir*f*".png")
+  plt.close()
 end

@@ -156,7 +156,7 @@ function selected_to_png()
     isdir(dir*pdir) || mkdir(dir*pdir)
     for f∈readdir(dir) 
       if f[end-3:end] == ".hex"
-        println(f)
+        #println(f)
         @pipe (dir*f 
           |> magim(_, 2)
           |> grplot 
