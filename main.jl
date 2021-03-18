@@ -95,64 +95,6 @@ function pixelsInside(c)
   idx
 end
 
-#=
-# OLD STUFF
-# This is the function that get the important contours
-feature_contours(img, cl) = @pipe (img
-  |> render(_, 1) 
-  |> normalize 
-  |> findContours(_, cl - 1)
-  |> remove_open
-  |> keep_levels(_, [1/cl (cl - 1)/cl])
-  |> keep_inner
-)
-# gets the size and average value inside the contour
-# cnt : an array of contours
-contour_props(cnt, img) = 
-[@pipe (cnt[1][i] 
-    |> pixels_inside
-    |> [img[i...] for i∈_] 
-    |> (length(_), mean(_))
-  )
- for i∈1:length(cnt[1])]
-
-# keeps only contours without a contour inside
-function keep_inner(cnt)
-  size(cnt[1], 1) == 1 && (return cnt)
-  mp = [[c[1, 1] c[1, 2]] for c∈cnt[1]]
-  ncnt = [[], []]
-  for i∈1:size(cnt[1], 1)
-    t = []
-    for j∈1:size(cnt[1], 1)
-      if i != j
-        append!(t, inpoly(cnt[1][i], mp[j]))
-      end
-    end
-    if all(x -> x == false, t)
-      push!(ncnt[1], cnt[1][i])
-      append!(ncnt[2], cnt[2][i])
-    end
-  end
-  ncnt
-end
-# keeps only contours with levels: lvls
-function keep_levels(cnt, lvls)
-  ncnt = [[], []]
-  for lvl∈lvls
-    for i∈1:size(cnt[1], 1)
-      if cnt[2][i] == lvl
-        push!(ncnt[1], cnt[1][i])
-        append!(ncnt[2], lvl)
-      end
-    end
-  end
-  ncnt
-end
-
-# convert cartesian index to array
-cart_to_arr(x) = [x[i] for i∈1:length(x)]
-=#
-
 # MAIN
 # =============================
 
@@ -179,7 +121,6 @@ for fname∈readdir(rdir)
   for i∈1:sz
     cimg = crop(img[i], c, r) 
     cnt = magContours(cimg)
-    println(typeof(cnt[1]))
     
     #=
     # XY alignment! X is 2* too wide!!!
