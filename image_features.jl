@@ -1,10 +1,9 @@
-using Pipe, Plots, PyCall 
+using Pipe 
 import Statistics: mean
 import ImageFiltering: imfilter, Kernel.gaussian
 import DelimitedFiles: writedlm
 import Contour as cont
 import JLD, JSON
-plt = pyimport("matplotlib.pyplot")
 
 include("hexdata.jl")
 hd = Hexdata
@@ -144,60 +143,8 @@ convertImage(img) = @pipe (img
   |> hd.fix_broken.(_)
 )
 
-# Calculate the magnet data
-#=
-function magnetData(fname, img, index)
-  img = img[index]
-  jmag, id, fm = [], [], []
-  # the raw data
-  c = contours(img, 1) 
-  cIndex = contourIndex(c)
-  a = contourArea.(c)
-  r = contourDims.(c)
-  b = [contourBfield(img, x) for x∈c]
-  outerIndex = findall(x -> x == 0, cIndex)
-  # looping over magnets in the image (outer contours)
-  for i∈1:length(outerIndex)
-    # get the outer area and radius
-    oData = @pipe outerIndex[i] |> [a[_], b[_], r[_][1], r[_][2]]
-    # get the inner area and radius
-    innerIndex = findall(x -> x == outerIndex[i], cIndex) 
-    d = [[a[j], b[j], r[j][1], r[j][2]] for j∈innerIndex]
-    # merging inner inner data
-    length(d) == 0 && (d = [[0.0, 0.0, 0.0, 0.0]])
-    iData = +(d...)
-    iData[2:3] /= length(d) 
-    # makes an dictionary for the magnet 
-    mag = Dict()
-    mag["ImageIndex"] = index
-    mag["HexFile"] = @pipe fname |> split(_, ".") |> _[1]
-    mag["Position"] = @pipe (c
-      |> _[outerIndex[i]]
-      |> mean(_, dims=1) 
-      |> vec 
-      |> round.(_, digits=2)
-    )
-    mag["OuterContour"] = round.(oData, digits=2)
-    mag["InnerContour"] = round.(iData, digits=2)
-    
-    push!(jmag, mag)
-    push!(id, [
-      mag["HexFile"], 
-      string(mag["ImageIndex"]),
-      string(mag["Position"][1]),
-      string(mag["Position"][2])
-    ])
-    push!(fm, [ 
-      mag["OuterContour"]...,
-      mag["InnerContour"]...
-    ])
-  end
-  jmag, id, fm
-end
-=#
-
 # Calculate the magnet data for all images
-function magnetData2(fname, img)
+function MagnetData(fname, img)
   robs, zobs = [], []
   for index∈1:length(img)
     # the raw data
@@ -237,61 +184,21 @@ function magnetData2(fname, img)
   return info, data
 end
 
-# makes a plot
-function magplot(img)
-  plt.figure()
-  for i∈1:2
-    plt.subplot(2,1,i)
-    plt.imshow(img[i], cmap="gray")
-    [plt.plot(c[:, 2], c[:, 1], color="C1") for c∈contours(img[i], 1)]
-  end
-end
 # MAIN
 # =============================
 rdir = "data/enuppned/"
-#cl = 2
-imageIndex = 2
 println("\nroot directory: ", rdir)
-#jdata, id, fdata = [], [], []
+#imageIndex = 2
 info, features = Any[], []
 for fname∈readdir(rdir)
   fname[end-3:end] != ".hex" && continue
-  img = hd.image(rdir*fname)[3] |> convertImage
-  iobs, obs = magnetData2(fname, img)
-  push!(info, iobs); push!(features, obs)
-end
-@pipe hcat(features...)' |> convert(Array, _) |> JLD.save("data.jld", "feat", (info, _))
-
-# OLD STUFF
-  #=
-  magplot(img)
-  @pipe ("result/"*split(fname, ".")[1]*".png" 
-    |> plt.savefig 
-    |> plt.close
+  iobs, obs = @pipe (rdir*fname 
+    |> hd.image(_)[3] 
+    |> convertImage 
+    |> MagnetData(fname, _)
   )
-  =#
-
-  #=
-  data = magnetData(fname, img, imageIndex)
-  append!(jdata, data[1])
-  append!(id, data[2])
-  append!(fdata, data[3])
-  =#
-#end
-
-# save to json
-#=
-MagDict = Dict()
-MagDict["Magnets"] = jdata
-open("result/data.json", "w") do fp
-  JSON.print(fp, MagDict, 2)
+  push!(info, iobs)
+  push!(features, obs)
 end
-=#
-# save to CSV
-#=
-writedlm("result/features.csv", fdata, ";")
-writedlm("result/id.csv", id, ";")
-=#
 
-# save to binary
-#JLD.save("result/zdata.jld", "data", (id, fdata))
+@pipe hcat(features...)' |> convert(Array, _) |> JLD.save("data.jld", "feat", (info, _))

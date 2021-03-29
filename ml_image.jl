@@ -1,5 +1,4 @@
-using Pipe, Plots, ScikitLearn, DelimitedFiles, JLD
-pyplot()
+using Pipe, ScikitLearn, DelimitedFiles, JLD
 
 # Covert data to: area, field/area and r1/r2 from main.jl
 DataToFeatures(x) = @pipe (x
